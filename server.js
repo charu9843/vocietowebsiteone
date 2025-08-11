@@ -6,10 +6,11 @@ const fsp = require('fs/promises');
 const { OpenAI } = require('openai');
 const archiver = require('archiver');
 
-require('dotenv').config();
+//require('dotenv').config();
 
 const app = express();
-const port = 3000;
+//const port = 3000;
+const port = process.env.PORT || 3000;
 
 // OpenAI API setup
 const openai = new OpenAI({
@@ -170,10 +171,9 @@ app.get('/download', async (req, res) => {
 
   await archive.finalize();
 });
-
-
-  
-
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'frontend', 'index.html'));
+});
 
 // Start server
 app.listen(port, () => {
