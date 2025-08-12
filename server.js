@@ -21,7 +21,7 @@ const openai = new OpenAI({
 // Middleware
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, 'frontend')));
-app.use('/preview', express.static(path.join(__dirname, 'generated-site')));
+
 
 
 // Route 1: Understand intent from Tamil speech using GPT
