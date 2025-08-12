@@ -20,7 +20,7 @@ const openai = new OpenAI({
 
 // Middleware
 app.use(bodyParser.json());
-app.use(express.static(path.join(__dirname, 'index.html')));
+app.use(express.static(path.join(__dirname)));
 
 
 
