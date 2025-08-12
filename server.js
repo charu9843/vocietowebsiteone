@@ -174,6 +174,10 @@ app.get('/download', async (req, res) => {
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'frontend', 'index.html'));
 });
+app.get('/test', (req, res) => {
+  res.send('Server is running!');
+});
+
 
 // Start server
 app.listen(port, () => {
