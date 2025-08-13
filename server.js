@@ -1,123 +1,172 @@
-const express = require("express");
-const fs = require("fs");
-const path = require("path");
-const archiver = require("archiver");
-const bodyParser = require("body-parser");
-const { OpenAI } = require("openai");
-require("dotenv").config();
+const express = require('express');
+const bodyParser = require('body-parser');
+const path = require('path');
+const fs = require('fs');
+const fsp = require('fs/promises');
+const { OpenAI } = require('openai');
+const archiver = require('archiver');
+require('dotenv').config();
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 3000; // Azure will inject PORT
+
+// OpenAI API setup
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  timeout: 120000
+});
 
 // Middleware
 app.use(bodyParser.json());
 
-// OpenAI setup
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-    timeout: 120000
+// Serve index.html and other static files from current folder
+app.use(express.static(__dirname));
+
+// Serve generated sites under /preview
+app.use('/preview', express.static(path.join(__dirname, 'generated-site')));
+
+// Root route (optional but helps Azure serve index.html as default)
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Serve index.html from root
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "index.html"));
-});
+// Route 1: Understand intent from Tamil speech
+app.post('/intent', async (req, res) => {
+  const { tamilText } = req.body;
+  if (!tamilText || tamilText.trim() === '') {
+    return res.status(400).json({ success: false, error: 'Tamil text is required' });
+  }
 
-// --- API ROUTES ---
-
-// 1. Detect intent from Tamil text
-app.post("/intent", async (req, res) => {
   try {
-    const { tamilText } = req.body;
-    if (!tamilText) {
-      return res.json({ success: false, error: "No Tamil text provided" });
-    }
-
-    // Call OpenAI to translate + get intent
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: 'gpt-4o-mini',
       messages: [
-        { role: "system", content: "You are a Tamil-to-English translator and intent detector." },
-        { role: "user", content: `Translate this to English and detect the intent: ${tamilText}` }
+        { role: 'system', content: 'You are an assistant that understands Tamil and converts spoken Tamil into a clear website intent in English.' },
+        { role: 'user', content: `Tamil Input: "${tamilText}". What kind of website does the user want? Respond in one short sentence.` }
       ]
     });
 
     const intent = completion.choices[0].message.content.trim();
+    console.log("📝 Tamil Text:", tamilText);
+    console.log("🎯 Intent:", intent);
+
     res.json({ success: true, intent });
-  } catch (err) {
-    console.error(err);
-    res.json({ success: false, error: "Intent detection failed" });
+  } catch (error) {
+    console.error('❌ GPT intent error:', error);
+    res.status(500).json({ success: false, error: 'Failed to detect intent' });
   }
 });
 
-// 2. Generate code based on intent
-app.post("/generate-code", async (req, res) => {
-  try {
-    const { intent } = req.body;
-    if (!intent) {
-      return res.json({ success: false, error: "No intent provided" });
-    }
-
-    // Call OpenAI to generate HTML code
+// Route 2: Generate website project code and save to /generated-site
+app.post('/generate-code', async (req, res) => {
+  const { intent } = req.body;
+  if (!intent || intent.trim() === '') {
+    return res.status(400).json({ success: false, error: 'Intent is required to generate code.' });
+  }
+    try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        { role: "system", content: "You generate full HTML websites based on a request." },
-        { role: "user", content: `Generate a simple HTML site for: ${intent}` }
-      ]
-    });
+  model: 'gpt-4',
+  messages: [
+    {
+      role: 'system',
+      content: `
+You are a coding assistant that generates complete, production-ready multi-file websites based on user intent.
 
-    const generatedCode = completion.choices[0].message.content;
+Always:
+- Produce professional, responsive HTML using Tailwind CSS via CDN (never use PostCSS or @import).
+- Include:
+  - index.html with multiple sections (hero, about, products/services, contact form that posts to the backend, footer)
+  - style.css for extra custom styles
+  - script.js for interactivity (animations, smooth scroll, etc.)
+  - server.js using Express that serves static files and contains a POST /contact route that saves submissions to contacts.txt
+  - package.json with correct dependencies and a start script
+- Use realistic placeholder images from Unsplash (e.g., https://source.unsplash.com/) that match the site topic.
+- Fill sections with relevant sample content so the site feels complete.
+- Keep filenames consistent with references in the code.
+- Avoid React or build tools unless the user explicitly requests them.
+- Include a fixed navbar at the top with links: Home, About, Products/Services, Contact.
+- Each navbar link must be an anchor tag linking to a matching section ID on the page (e.g., href="#about").
+- Add smooth scrolling for anchor navigation using CSS (scroll-behavior: smooth) or JavaScript.
+- Each section on the page must have an ID attribute corresponding to the navbar links.
 
-    // Save generated site
-    const outputDir = path.join(__dirname, "generated-site");
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir);
+
+Format the output exactly as:
+--- index.html ---
+<code>
+--- style.css ---
+<code>
+--- script.js ---
+<code>
+--- server.js ---
+<code>
+--- package.json ---
+<code>
+`.trim(),
+
+      
+    },
+    {
+      role: 'user',
+      content: `Intent: ${intent}\n\nGenerate the full code as files:\n- index.html with Tailwind via CDN (not @import)\n- style.css (only if extra styles needed)\n- server.js using Express\n- package.json\n- script.js for interactivity (animations, smooth scroll, etc.)n\n Use consistent filenames and avoid errors.`,
+    },
+  ],
+});
+
+
+
+    const gptOutput = completion.choices[0].message.content;
+
+    // Parse files
+    const files = {};
+    const regex = /---\s*([\w.\-]+)\s*---\s*\n([\s\S]*?)(?=(---\s*[\w.\-]+\s*---|$))/g;
+    let match;
+    while ((match = regex.exec(gptOutput)) !== null) {
+      const filename = match[1].trim();
+      let content = match[2].trim();
+      if (content.startsWith("```")) {
+        content = content.replace(/^```[a-z]*\n?/i, '').replace(/```$/, '').trim();
+      }
+      files[filename] = content;
     }
-    fs.writeFileSync(path.join(outputDir, "index.html"), generatedCode);
 
-    res.json({ success: true, files: ["index.html"] });
-  } catch (err) {
-    console.error(err);
-    res.json({ success: false, error: "Code generation failed" });
+    // Save to generated-site
+    const folderPath = path.join(__dirname, 'generated-site');
+    await fsp.rm(folderPath, { recursive: true, force: true });
+    await fsp.mkdir(folderPath);
+
+    for (const [filename, content] of Object.entries(files)) {
+      const filePath = path.join(folderPath, filename);
+      await fsp.writeFile(filePath, content, 'utf-8');
+    }
+
+    res.json({ success: true, message: 'Code generated and saved', files: Object.keys(files) });
+  } catch (error) {
+    console.error('❌ Code generation error:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate project code' });
   }
 });
 
-// 3. Preview generated site
-app.get("/preview/index.html", (req, res) => {
-  const previewFile = path.join(__dirname, "generated-site", "index.html");
-  if (fs.existsSync(previewFile)) {
-    res.sendFile(previewFile);
-  } else {
-    res.status(404).send("No generated site found");
-  }
-});
+// Route 3: Download generated site as ZIP
+app.get('/download', async (req, res) => {
+  const folderPath = path.join(__dirname, 'generated-site');
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', 'attachment; filename=generated-site.zip');
 
-// 4. Download generated site as zip
-app.get("/download", (req, res) => {
-  const outputDir = path.join(__dirname, "generated-site");
-  if (!fs.existsSync(outputDir)) {
-    return res.status(404).send("No generated site found");
-  }
-
-  const zipPath = path.join(__dirname, "site.zip");
-  const output = fs.createWriteStream(zipPath);
-  const archive = archiver("zip", { zlib: { level: 9 } });
-
-  output.on("close", () => {
-    res.download(zipPath, "generated-site.zip", () => {
-      fs.unlinkSync(zipPath); // delete zip after download
-    });
+  const archive = archiver('zip', { zlib: { level: 9 } });
+  archive.on('error', err => {
+    console.error('❌ Archive error:', err);
+    res.status(500).send({ error: 'Could not create archive' });
   });
 
-  archive.pipe(output);
-  archive.directory(outputDir, false);
-  archive.finalize();
+  archive.pipe(res);
+  archive.directory(folderPath, false);
+  await archive.finalize();
 });
 
 // Start server
 app.listen(port, () => {
-  console.log(`🚀 Server running on http://localhost:${port}`);
+  console.log(`🚀 Server running at: http://localhost:${port}`);
 });
+
 
 
