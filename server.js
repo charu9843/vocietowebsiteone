@@ -15,6 +15,7 @@ app.use(bodyParser.json());
 // OpenAI setup
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+    timeout: 120000
 });
 
 // Serve index.html from root
