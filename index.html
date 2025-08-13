@@ -70,54 +70,40 @@
         updateProgress(20, 'Tamil recognized');  // Reset buttons visibility
         document.getElementById("view-site-btn").style.display = 'none';
         document.getElementById("download-btn").style.display = 'none';
-        // Step 1: Send to /intent
-        fetch('/intent', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tamilText })
-        })
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            const intent = data.intent;
-            document.getElementById("intent-output").innerText = "🎯 Intent: " + intent;
-            updateProgress(50, 'Intent detected');
-            // Step 2: Send to /generate-code
-            return fetch('/generate-code', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ intent })
-            });
-          } else {
-            throw new Error("Intent detection failed");
-          }
-        })
-        .then(res => res.json())
-        .then(data => {
-          if (data.success) {
-            document.getElementById("result-output").innerHTML =
-            "📦 Code files generated:<br>" +
-            data.files.join("<br>");
-            
-            updateProgress(80, 'Code generated');
+        try {
+          // Step 1: Detect intent
+          let res = await fetch(window.location.origin + '/intent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tamilText })
+          });
+          if (!res.ok) throw new Error(`Intent request failed: ${res.status}`);
+          let data = await res.json();
+          if (!data.success) throw new Error(data.error);
+          const intent = data.intent;
+          document.getElementById("intent-output").innerText = "🎯 Intent: " + intent;
+          updateProgress(50, 'Intent detected');
 
-            document.getElementById("view-site-btn").style.display = 'inline-block';
-            document.getElementById("download-btn").style.display = 'inline-block';
-            
-            updateProgress(100, 'Ready to view and download');
- 
-          } else {
-            document.getElementById("result-output").innerText =
-              "❌ Code generation failed: " + data.error;
-            updateProgress(0, 'Failed');  
-            
-          }
-        })
-        .catch(err => {
+          // Step 2: Generate code
+          res = await fetch(window.location.origin + '/generate-code', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ intent })
+          });
+          if (!res.ok) throw new Error(`Code generation failed: ${res.status}`);
+          data = await res.json();
+          if (!data.success) throw new Error(data.error);
+
+          document.getElementById("result-output").innerHTML =
+            "📦 Code files generated:<br>" + data.files.join("<br>");
+          updateProgress(100, 'Ready to view and download');
+          document.getElementById("view-site-btn").style.display = 'inline-block';
+          document.getElementById("download-btn").style.display = 'inline-block';
+        } catch (err) {
           console.error(err);
-          document.getElementById("result-output").innerText = "❌ Error occurred";
+          document.getElementById("result-output").innerText = "❌ " + err.message;
           updateProgress(0, 'Error');
-        });
+        }
       };
 
       recognition.onerror = function(event) {
@@ -127,14 +113,15 @@
 
       recognition.start();
     }
-     function viewWebsite() {
-      window.open('/preview/index.html', '_blank');
+
+    function viewWebsite() {
+      window.open(window.location.origin + '/preview/index.html', '_blank');
     }
 
-    // Triggers download of zipped generated-site folder
     function downloadSite() {
-      window.location.href = '/download';
+      window.location.href = window.location.origin + '/download';
     }
+        
   </script>
 </body>
 </html>
